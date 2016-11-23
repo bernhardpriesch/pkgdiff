@@ -260,7 +260,7 @@ GENERAL OPTIONS:
 
   -width WIDTH
       Width of the Visual Diff.
-      Default: 80
+      Default: 75
 
   -prelines NUM
       Size of the context in the Visual Diff.
@@ -381,7 +381,7 @@ my $RENAME_FILE_MATCH = 0.55;
 my $RENAME_CONTENT_MATCH = 0.85;
 my $MOVE_CONTENT_MATCH = 0.90;
 my $MOVE_DEPTH = 4;
-my $DEFAULT_WIDTH = 80;
+my $DEFAULT_WIDTH = 75;
 my $DIFF_PRE_LINES = 10;
 my $EXACT_DIFF_SIZE = 256*1024;
 my $EXACT_DIFF_RATE = 0.1;
@@ -2352,13 +2352,13 @@ sub identifyFile($$)
     if($Type eq "Ext"
     or $Type eq "iExt")
     {
-        if($Name=~/\.(\w+\.\w+)(\.(in|\d+)|)\Z/i)
+        if($Name=~/\.(\w+\.\w+)(\.in|)\Z/i)
         { # Double extension
             if(my $ID = $FileFormat{$Type}{$1}) {
                 return $ID;
             }
         }
-        if($Name=~/\.(\w+)(\.(in|\d+)|)\Z/i)
+        if($Name=~/\.(\w+)(\.in|)\Z/i)
         { # Single extension
             if(my $ID = $FileFormat{$Type}{$1}) {
                 return $ID;
@@ -2456,7 +2456,7 @@ sub getFormat($)
     { # automatic
         if(my $Info = getType($Path))
         {
-            if($Info=~/compressed|Zip archive/i) {
+            if($Info=~/compressed/i) {
                 $Format = "ARCHIVE";
             }
             elsif($Info=~/data/i) {
@@ -2501,7 +2501,6 @@ sub getFormat($)
     { # Unknown
         $Format = "OTHER";
     }
-    
     return ($Cache{"getFormat"}{$Path}=$Format);
 }
 
@@ -2564,8 +2563,7 @@ sub getFormat_($)
     elsif((($Name=~/\.(gz|xz|lzma)\Z/i or $Name=~/\.(\d+)\Z/i)
     and $Dir=~/\/(man\d*|manpages)(\/|\Z)/)
     or ($Name=~/\.(\d+)\Z/i and $Dir=~/\/(doc|docs|src|libs|utils)(\/|\Z)/)
-    or $Name=~/\.(man)\Z/
-    or ($Name=~/[a-z]{3,}\.(\d+)\Z/i and $Name!~/\.($ARCHIVE_EXT)\./i))
+    or $Name=~/\.(man)\Z/ or $Name=~/[a-z]{3,}\.(\d+)\Z/i)
     { # harmattan/manpages/uic.1
       # t1utils-1.36/t1asm.1
         return "MANPAGE";
@@ -2803,19 +2801,8 @@ sub registerPackage(@)
         if(not $FName) {
             next;
         }
-        
-        if(defined $SkipPattern)
-        {
-            if(skipFile($FName)) {
-                next;
-            }
-        }
-        
-        $PackageFiles{$Version}{$FName} = $File;
-        $PathName{$File} = $FName;
-        
-        if(not get_dirname($FName)
-        and getFormat($File) eq "ARCHIVE"
+       
+        if(getFormat($File) eq "ARCHIVE"
         and not defined $SkipSubArchives)
         { # go into archives (for SRPM)
             my $SubDir = "$TMP_DIR/xcontent$Version/$FName";
@@ -2842,6 +2829,16 @@ sub registerPackage(@)
                 $PackageFiles{$Version}{$SFName} = $SubFile;
             }
         }
+
+        if(defined $SkipPattern)
+        {
+            if(skipFile($FName)) {
+                next;
+            }
+        }
+    
+        $PackageFiles{$Version}{$FName} = $File;
+        $PathName{$File} = $FName;
     }
     delete($PackageFiles{$Version}{"/"});
     if($CheckUsage) {
@@ -2879,7 +2876,7 @@ sub getArchiveFormat($)
     foreach (sort {length($b)<=>length($a)} keys(%ArchiveFormats))
     {
         my $P = $ArchiveFormats{$_};
-        if($Pkg=~/\.($P)(|\.\d+)\Z/) {
+        if($Pkg=~/\.($P)\Z/) {
             return $_;
         }
     }
@@ -2889,17 +2886,9 @@ sub getArchiveFormat($)
 sub unpackArchive($$)
 { # TODO: tar -xf for all tar.* formats
     my ($Pkg, $OutDir) = @_;
-    
-    my $Format = getArchiveFormat($Pkg);
-    if(not $Format)
-    {
-        printMsg("ERROR", "can't determine format of archive \'".get_filename($Pkg)."\'");
-        return 1;
-    }
-    
-    my $Cmd = "";
     mkpath($OutDir);
-    
+    my $Cmd = "";
+    my $Format = getArchiveFormat($Pkg);
     if($Format=~/TAR\.\w+/i or $Format eq "TAR") {
         $Cmd = "tar -xf \"$Pkg\" --directory=\"$OutDir\"";
     }
@@ -2919,9 +2908,8 @@ sub unpackArchive($$)
         $Cmd = "cd \"$OutDir\" && jar -xf \"$Pkg\"";
     }
     else {
-        return 1;
+        return "";
     }
-    
     system($Cmd." >$TMP_DIR/output 2>&1");
 }
 
@@ -3030,10 +3018,7 @@ sub readPackage($$)
     }
     elsif($Format eq "ARCHIVE")
     { # TAR.GZ and others
-        if(unpackArchive(abs_path($Path), $CPath)!=0) {
-            exitStatus("Error", "can't extract package \'".get_filename($Path)."\'");
-        }
-        
+        unpackArchive(abs_path($Path), $CPath);
         if(my ($N, $V) = parseVersion(get_filename($Path))) {
             ($Attributes{"Name"}, $Attributes{"Version"}) = ($N, $V);
         }
